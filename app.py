@@ -1,5 +1,5 @@
 """
-app.py -- Voice Agent UI
+app.py -- Voice Bot UI
 Run with: streamlit run app.py
 """
 
