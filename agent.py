@@ -8,12 +8,17 @@ from dotenv import load_dotenv
 from groq import Groq
 
 load_dotenv()
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY", "")
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY") or st.secrets.get("DEEPGRAM_API_KEY", "")
 
 ASR_MODEL = "whisper-large-v3"          
 LLM_MODEL = "llama-3.3-70b-versatile"  
 DEEPGRAM_TTS_MODEL = "aura-2-thalia-en"
+
+@st.cache_resource
+def get_groq_client():
+    return Groq(api_key=GROQ_API_KEY)
 
 ##system prompt
 SYSTEM_PROMPT = (
@@ -92,7 +97,7 @@ def transcribe_audio(audio_bytes: bytes, filename: str = "audio.wav") -> str:
     if not GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY is not set. Add it to your .env file.")
 
-    client = Groq(api_key=GROQ_API_KEY)
+    client = get_groq_client()
     audio_file = io.BytesIO(audio_bytes)
     audio_file.name = filename 
 

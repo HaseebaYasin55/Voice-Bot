@@ -401,19 +401,27 @@ components.html(
       } catch (e) {}
     }
 
+    function debounce(fn, ms) {
+    let t;
+    return (...args) => {
+        clearTimeout(t);
+        t = setTimeout(() => fn(...args), ms);
+    };
+}
+
+    const debouncedFix = debounce(fixHostIframes, 150);
+
     fixHostIframes();
 
-    const observer = new MutationObserver(fixHostIframes);
+    const micWrapEl = window.parent.document.querySelector('.mic-wrap');
+    const observer = new MutationObserver(debouncedFix);
+    observer.observe(micWrapEl || window.parent.document.body, {
+         childList: true,
+         subtree: true
+});
 
-    observer.observe(window.parent.document.body, {
-      childList: true,
-      subtree: true
-    });
-
-    window.parent.addEventListener('scroll', fixHostIframes, true);
-    window.parent.addEventListener('resize', fixHostIframes);
-
-    setInterval(fixHostIframes, 1000);
+window.parent.addEventListener('scroll', debouncedFix, true);
+window.parent.addEventListener('resize', debouncedFix);
     </script>
     """,
     height=0,
@@ -441,7 +449,6 @@ if audio_bytes:
                     # audio to play back.
                     result = agent.run_turn(audio_bytes, st.session_state.history)
                     st.session_state.pending_audio = result["assistant_audio"]
-                    st.session_state.turn_count += 1  # forces a fresh mic widget next turn
                 except Exception as e:
                     st.error(f"Something went wrong: {e}")
                     st.session_state.pending_audio = None
