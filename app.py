@@ -8,7 +8,7 @@ import streamlit.components.v1 as components
 from audio_recorder_streamlit import audio_recorder
 import agent
 
-st.set_page_config(page_title="Voice Agent", page_icon="🎙️", layout="centered")
+st.set_page_config(page_title="Voice A", page_icon="🎙️", layout="centered")
 
 ##styling
 st.markdown(
@@ -284,10 +284,13 @@ if audio_bytes:
                     result = agent.run_turn(audio_bytes, st.session_state.history)
                     st.session_state.pending_audio = result["assistant_audio"]
                     st.session_state.turn_count += 1  # forces a fresh mic widget next turn
+                    st.rerun()
                 except Exception as e:
-                    st.error(f"Something went wrong: {e}")
+                    import traceback
+                    print(traceback.format_exc())
                     st.session_state.pending_audio = None
-            st.rerun()
+                    st.session_state.last_audio_hash = None  # allow retrying this recording
+                    st.error(f"Something went wrong: {e}")
 
 if st.session_state.pending_audio:
     st.audio(st.session_state.pending_audio, format="audio/mp3", autoplay=True)

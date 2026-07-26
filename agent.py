@@ -116,7 +116,7 @@ def get_agent_reply(conversation_history: list[dict]) -> str:
     if not GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY is not set. Add it to your .env file.")
 
-    client = Groq(api_key=GROQ_API_KEY)
+    client = get_groq_client()
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history
 
     response = client.chat.completions.create(
@@ -130,11 +130,38 @@ def get_agent_reply(conversation_history: list[dict]) -> str:
     msg = response.choices[0].message
 
     if msg.tool_calls:
-        messages.append(msg)
+        # Append a plain dict (not the raw SDK message object) -- the SDK
+        # object doesn't serialize correctly when sent back in the next
+        # chat.completions.create call, which was silently raising and
+        # aborting the whole turn before any assistant reply was produced.
+        messages.append(
+            {
+                "role": "assistant",
+                "content": msg.content or "",
+                "tool_calls": [
+                    {
+                        "id": call.id,
+                        "type": "function",
+                        "function": {
+                            "name": call.function.name,
+                            "arguments": call.function.arguments,
+                        },
+                    }
+                    for call in msg.tool_calls
+                ],
+            }
+        )
+
         for call in msg.tool_calls:
             fn = TOOL_REGISTRY.get(call.function.name)
-            args = json.loads(call.function.arguments or "{}")
-            result = fn(**args) if fn else f"Error: unknown tool '{call.function.name}'"
+            try:
+                args = json.loads(call.function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            try:
+                result = fn(**args) if fn else f"Error: unknown tool '{call.function.name}'"
+            except Exception as e:
+                result = f"Error running tool '{call.function.name}': {e}"
             messages.append(
                 {
                     "role": "tool",
@@ -147,9 +174,9 @@ def get_agent_reply(conversation_history: list[dict]) -> str:
         follow_up = client.chat.completions.create(
             model=LLM_MODEL, messages=messages, temperature=0.7, max_tokens=300
         )
-        return follow_up.choices[0].message.content.strip()
+        return (follow_up.choices[0].message.content or "").strip()
 
-    return msg.content.strip()
+    return (msg.content or "").strip()
 
 ##Text-to-Speech: (Deepgram Aura-2)
 def synthesize_speech(text: str) -> bytes:
