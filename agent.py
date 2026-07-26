@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import time
 import streamlit as st
 from datetime import datetime
 import requests
@@ -16,9 +17,18 @@ ASR_MODEL = "whisper-large-v3"
 LLM_MODEL = "llama-3.3-70b-versatile"  
 DEEPGRAM_TTS_MODEL = "aura-2-thalia-en"
 
+# Hard timeout for every Groq API call. The SDK's default is 600s with
+# automatic retries on connection errors, which is what was causing the
+# "minutes" of hanging -- any network hiccup would silently retry instead
+# of failing fast. 20s is generous for both Whisper and Llama on Groq's
+# infra (normally sub-2-second); if it's actually taking that long, we want
+# a fast, visible failure instead of a silent multi-minute stall.
+GROQ_TIMEOUT_SECONDS = 20.0
+GROQ_MAX_RETRIES = 1
+
 @st.cache_resource
 def get_groq_client():
-    return Groq(api_key=GROQ_API_KEY)
+    return Groq(api_key=GROQ_API_KEY, timeout=GROQ_TIMEOUT_SECONDS, max_retries=GROQ_MAX_RETRIES)
 
 ##system prompt
 SYSTEM_PROMPT = (
@@ -40,7 +50,7 @@ def get_weather(city: str) -> str:
         geo = requests.get(
             "https://geocoding-api.open-meteo.com/v1/search",
             params={"name": city, "count": 1},
-            timeout=5,
+            timeout=(3, 5),
         ).json()
         if not geo.get("results"):
             return f"I couldn't find a location called {city}."
@@ -53,7 +63,7 @@ def get_weather(city: str) -> str:
                 "longitude": loc["longitude"],
                 "current_weather": True,
             },
-            timeout=5,
+            timeout=(3, 5),
         ).json()
         temp = weather["current_weather"]["temperature"]
         wind = weather["current_weather"]["windspeed"]
@@ -101,12 +111,14 @@ def transcribe_audio(audio_bytes: bytes, filename: str = "audio.wav") -> str:
     audio_file = io.BytesIO(audio_bytes)
     audio_file.name = filename 
 
+    t0 = time.perf_counter()
     transcription = client.audio.transcriptions.create(
         file=audio_file,
         model=ASR_MODEL,
         response_format="text",
         language="en",
     )
+    print(f"DEBUG transcribe_audio: {time.perf_counter() - t0:.2f}s, {len(audio_bytes)} bytes")
     text = transcription if isinstance(transcription, str) else transcription.text
     return text.strip()
 
@@ -119,6 +131,7 @@ def get_agent_reply(conversation_history: list[dict]) -> str:
     client = get_groq_client()
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history
 
+    t0 = time.perf_counter()
     response = client.chat.completions.create(
         model=LLM_MODEL,
         messages=messages,
@@ -127,6 +140,7 @@ def get_agent_reply(conversation_history: list[dict]) -> str:
         temperature=0.7,
         max_tokens=300,
     )
+    print(f"DEBUG llm_call_1: {time.perf_counter() - t0:.2f}s")
     msg = response.choices[0].message
 
     if msg.tool_calls:
@@ -158,10 +172,12 @@ def get_agent_reply(conversation_history: list[dict]) -> str:
                 args = json.loads(call.function.arguments or "{}")
             except json.JSONDecodeError:
                 args = {}
+            t_tool = time.perf_counter()
             try:
                 result = fn(**args) if fn else f"Error: unknown tool '{call.function.name}'"
             except Exception as e:
                 result = f"Error running tool '{call.function.name}': {e}"
+            print(f"DEBUG tool_call [{call.function.name}]: {time.perf_counter() - t_tool:.2f}s")
             messages.append(
                 {
                     "role": "tool",
@@ -171,9 +187,11 @@ def get_agent_reply(conversation_history: list[dict]) -> str:
                 }
             )
 
+        t1 = time.perf_counter()
         follow_up = client.chat.completions.create(
             model=LLM_MODEL, messages=messages, temperature=0.7, max_tokens=300
         )
+        print(f"DEBUG llm_call_2: {time.perf_counter() - t1:.2f}s")
         return (follow_up.choices[0].message.content or "").strip()
 
     return (msg.content or "").strip()
@@ -189,7 +207,9 @@ def _synthesize_deepgram(text: str) -> bytes:
 
     url = f"https://api.deepgram.com/v1/speak?model={DEEPGRAM_TTS_MODEL}"
     headers = {"Authorization": f"Token {DEEPGRAM_API_KEY}", "Content-Type": "application/json"}
-    resp = requests.post(url, headers=headers, json={"text": text}, timeout=30)
+    t0 = time.perf_counter()
+    resp = requests.post(url, headers=headers, json={"text": text}, timeout=(3, 15))
+    print(f"DEBUG deepgram_tts: {time.perf_counter() - t0:.2f}s, {len(text)} chars")
     resp.raise_for_status()
     return resp.content
 
