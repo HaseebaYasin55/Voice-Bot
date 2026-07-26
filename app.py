@@ -50,11 +50,12 @@ st.markdown(
     .subtitle {
     text-align: center;
     font-family: "Poppins", sans-serif;
-    font-size: 1rem;
-    font-weight: 600;
+    font-size: 0.95rem;
+    font-weight: 400;
     color: #99f6e4;
     letter-spacing: 0.5px;
     margin-bottom: 2.2rem;
+    opacity:0.8,
     }
 
     .row {
@@ -191,12 +192,13 @@ st.markdown(
     .status-pill {
     text-align: center;
     font-family: "Poppins", sans-serif;
-    font-size: 0.95rem;
-    font-weight: 600;
+    font-size: 0.9rem;
+    font-weight: 400;
     color: #99f6e4;
-    letter-spacing: 0.4px;
+    letter-spacing: 0.3px;
     margin-top: 0.5rem;
     margin-bottom: 1.5rem;
+    opacity: 0.75;
     }
 
     [data-testid="stAudio"] {
